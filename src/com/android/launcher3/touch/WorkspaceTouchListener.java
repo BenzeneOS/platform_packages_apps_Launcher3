@@ -28,8 +28,10 @@ import static com.android.launcher3.logging.StatsLogManager.LauncherEvent.LAUNCH
 import static com.android.launcher3.logging.StatsLogManager.LauncherEvent.LAUNCHER_SPLIT_SELECTION_EXIT_INTERRUPTED;
 import static com.android.launcher3.logging.StatsLogManager.LauncherEvent.LAUNCHER_WORKSPACE_LONGPRESS;
 
+import android.content.Context;
 import android.graphics.PointF;
 import android.graphics.Rect;
+import android.os.PowerManager;
 import android.view.GestureDetector;
 import android.view.HapticFeedbackConstants;
 import android.view.InputDevice;
@@ -42,7 +44,9 @@ import com.android.launcher3.AbstractFloatingView;
 import com.android.launcher3.CellLayout;
 import com.android.launcher3.DeviceProfile;
 import com.android.launcher3.Launcher;
+import com.android.launcher3.LauncherPrefs;
 import com.android.launcher3.Workspace;
+import com.android.launcher3.util.VibratorWrapper;
 import com.android.launcher3.dragndrop.DragLayer;
 import com.android.launcher3.logger.LauncherAtom;
 import com.android.launcher3.testing.TestLogging;
@@ -74,6 +78,8 @@ public class WorkspaceTouchListener extends GestureDetector.SimpleOnGestureListe
 
     private int mLongPressState = STATE_CANCELLED;
 
+    private final PowerManager mPm;
+
     private final GestureDetector mGestureDetector;
 
     public WorkspaceTouchListener(Launcher launcher, Workspace<?> workspace) {
@@ -82,6 +88,7 @@ public class WorkspaceTouchListener extends GestureDetector.SimpleOnGestureListe
         // Use twice the touch slop as we are looking for long press which is more
         // likely to cause movement.
         mTouchSlop = 2 * ViewConfiguration.get(launcher).getScaledTouchSlop();
+        mPm = (PowerManager) workspace.getContext().getSystemService(Context.POWER_SERVICE);
         mGestureDetector = new GestureDetector(workspace.getContext(), this);
     }
 
@@ -221,5 +228,16 @@ public class WorkspaceTouchListener extends GestureDetector.SimpleOnGestureListe
                 cancelLongPress();
             }
         }
+    }
+
+    @Override
+    public boolean onDoubleTap(MotionEvent event) {
+        Context context = mWorkspace.getContext();
+        if (LauncherPrefs.SLEEP_GESTURE.get(context)) {
+            if (LauncherPrefs.SLEEP_GESTURE_HAPTIC.get(context))
+                VibratorWrapper.INSTANCE.get(context).vibrate(VibratorWrapper.EFFECT_CLICK);
+            mPm.goToSleep(event.getEventTime());
+        }
+        return true;
     }
 }
