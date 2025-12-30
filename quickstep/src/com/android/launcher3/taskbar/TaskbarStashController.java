@@ -48,6 +48,7 @@ import android.animation.ValueAnimator;
 import android.app.RemoteAction;
 import android.graphics.drawable.Icon;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.InsetsController;
 import android.view.View;
@@ -593,6 +594,13 @@ public class TaskbarStashController implements TaskbarControllers.LoggableTaskba
      * @see android.view.WindowInsets.Type#systemBars()
      */
     public int getContentHeightToReportToApps() {
+        // If navigation bar hint is disabled, report 0 insets so apps can use full screen
+        boolean navigationBarHintEnabled = Settings.Secure.getInt(
+                mActivity.getContentResolver(), Settings.Secure.NAVIGATION_BAR_HINT, 1) == 1;
+        if (!navigationBarHintEnabled) {
+            return 0;
+        }
+
         boolean isTransient = mActivity.isTransientTaskbar();
         if (mActivity.isUserSetupComplete() && (mActivity.isPhoneGestureNavMode() || isTransient)) {
             return getStashedHeight();
