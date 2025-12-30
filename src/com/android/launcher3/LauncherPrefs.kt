@@ -354,6 +354,10 @@ constructor(@ApplicationContext private val encryptedContext: Context) {
 
         @JvmField val SELECT_TIP_SEEN = backedUpItem("launcher.select_tip_seen", false)
 
+        // Double tap to sleep on home screen
+        @JvmField val SLEEP_GESTURE = backedUpItem("pref_sleep_gesture", true)
+        @JvmField val SLEEP_GESTURE_HAPTIC = backedUpItem("pref_sleep_gesture_haptic", true)
+
         @JvmStatic
         fun <T> backedUpItem(
             sharedPrefKey: String,
