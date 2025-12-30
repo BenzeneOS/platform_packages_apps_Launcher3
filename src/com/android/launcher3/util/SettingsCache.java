@@ -74,6 +74,9 @@ public class SettingsCache extends ContentObserver {
     /** Hidden field Settings.Secure.HIDE_PRIVATESPACE_ENTRY_POINT */
     public static final Uri PRIVATE_SPACE_HIDE_WHEN_LOCKED_URI =
             Settings.Secure.getUriFor("hide_privatespace_entry_point");
+    /** Hidden field Settings.Secure.NAVIGATION_BAR_HINT */
+    public static final Uri NAVIGATION_BAR_HINT_URI =
+            Settings.Secure.getUriFor("navigation_bar_hint");
     public static final Uri ROTATION_SETTING_URI =
             Settings.System.getUriFor(ACCELEROMETER_ROTATION);
     /** Hidden field {@link Settings.System#TOUCHPAD_NATURAL_SCROLLING}. */

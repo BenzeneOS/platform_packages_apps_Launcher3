@@ -31,6 +31,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Outline;
 import android.graphics.Rect;
+import android.provider.Settings;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 
@@ -152,8 +153,11 @@ public class StashedHandleViewController implements TaskbarControllers.LoggableT
         int taskbarBottomMargin = deviceProfile.getTaskbarProfile().getBottomMargin();
         mStashedHandleView.getLayoutParams().height = mTaskbarSize + taskbarBottomMargin;
 
+        // Check if navigation bar hint is disabled - hide pill but keep the height for insets
+        boolean navigationBarHintEnabled = Settings.Secure.getInt(
+                activity.getContentResolver(), Settings.Secure.NAVIGATION_BAR_HINT, 1) == 1;
         mTaskbarStashedHandleAlpha.get(ALPHA_INDEX_STASHED).setValue(
-                activity.isPhoneGestureNavMode() ? 1 : 0);
+                activity.isPhoneGestureNavMode() && navigationBarHintEnabled ? 1 : 0);
         mTaskbarStashedHandleHintScale.updateValue(1f);
 
         final int stashedTaskbarHeight = mControllers.taskbarStashController.getStashedHeight();
