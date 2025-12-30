@@ -43,6 +43,8 @@
     <!-- Title for an option to enter split screen mode for a given app -->
     <string name="recent_task_option_split_screen">Split screen</string>
     <string name="recent_task_option_aspect_ratio">Change aspect ratio</string>
+    <!-- Title for an option to force stop a given app -->
+    <string name="recent_task_option_force_stop">Force stop</string>
     <string name="split_app_info_accessibility">App info for %1$s</string>
     <string name="split_app_usage_settings">Usage settings for %1$s</string>
     <string name="close_task_accessibility">Close %1$s</string>

@@ -16,6 +16,8 @@
 
 package com.android.quickstep
 
+import android.app.ActivityManager
+import android.content.Context
 import android.view.View
 import com.android.launcher3.R
 import com.android.launcher3.logging.StatsLogManager.LauncherEvent
@@ -66,6 +68,29 @@ interface TaskViewShortFactory {
         }
     }
 
+    class ForceStopSystemShortcut(
+        container: RecentsViewContainer,
+        private val taskView: TaskView,
+        private val packageName: String,
+    ) :
+        SystemShortcut<ActivityContext>(
+            R.drawable.ic_block_no_shadow,
+            R.string.recent_task_option_force_stop,
+            container,
+            taskView.itemInfo,
+            taskView,
+        ) {
+        override fun onClick(view: View) {
+            dismissTaskMenuView()
+            val am = mTarget.asContext().getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.forceStopPackage(packageName)
+
+            // Dismiss the task from recents
+            val recentsView = taskView.recentsView ?: return
+            recentsView.dismissTaskView(taskView, true)
+        }
+    }
+
     companion object {
         /** Returns menu options associated with TaskView. */
         fun getEnabledShortcuts(taskView: TaskView) =
@@ -100,6 +125,34 @@ interface TaskViewShortFactory {
                 override fun showForDesktopTask() = true
             }
 
-        private val TASK_VIEW_MENU_OPTIONS: Array<TaskViewShortFactory> = arrayOf(REMOVE_TASK)
+        private val FORCE_STOP: TaskViewShortFactory =
+            object : TaskViewShortFactory {
+                override fun getShortcuts(
+                    container: RecentsViewContainer,
+                    taskView: TaskView,
+                ): List<SystemShortcut<ActivityContext>> {
+                    val task = taskView.taskContainers.firstOrNull()?.task ?: return emptyList()
+                    val packageName = task.topComponent?.packageName ?: return emptyList()
+
+                    // Don't show force stop for the launcher itself
+                    if (packageName == container.asContext().packageName) {
+                        return emptyList()
+                    }
+
+                    return listOf(
+                        ForceStopSystemShortcut(
+                            container,
+                            taskView,
+                            packageName,
+                        )
+                    )
+                }
+
+                override fun showForGroupedTask() = true
+
+                override fun showForDesktopTask() = true
+            }
+
+        private val TASK_VIEW_MENU_OPTIONS: Array<TaskViewShortFactory> = arrayOf(REMOVE_TASK, FORCE_STOP)
     }
 }
