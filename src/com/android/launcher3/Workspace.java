@@ -445,7 +445,8 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
 
         mWorkspaceFadeInAdjacentScreens = grid.shouldFadeAdjacentWorkspaceScreens();
 
-        Rect padding = grid.getWorkspaceProfile().getWorkspacePadding();
+        Rect padding = new Rect(grid.getWorkspaceProfile().getWorkspacePadding());
+        padding.bottom += grid.getHomeBottomSearchReservedHeight(mLauncher);
         setPadding(padding.left, padding.top, padding.right, padding.bottom);
         mInsets.set(insets);
 
@@ -474,7 +475,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         // Set insets for page indicator
         lp.topMargin = lp.leftMargin = lp.rightMargin = 0;
         lp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
-        lp.bottomMargin = grid.getHotseatProfile().getBarSizePx();
+        lp.bottomMargin = grid.getHotseatBarSizePx(mLauncher);
         mPageIndicator.setLayoutParams(lp);
     }
 

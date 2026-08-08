@@ -38,6 +38,27 @@
         launcher:logIdOff="614" />
 
     <SwitchPreference
+        android:key="pref_home_bottom_search"
+        android:title="@string/pref_home_bottom_search_title"
+        android:summary="@string/pref_home_bottom_search_summary"
+        android:defaultValue="false"
+        android:persistent="true" />
+
+    <SwitchPreference
+        android:key="pref_all_apps_bottom_search"
+        android:title="@string/pref_all_apps_bottom_search_title"
+        android:summary="@string/pref_all_apps_bottom_search_summary"
+        android:defaultValue="false"
+        android:persistent="true" />
+
+    <SwitchPreference
+        android:key="pref_allow_home_back_gesture"
+        android:title="@string/pref_allow_home_back_gesture_title"
+        android:summary="@string/pref_allow_home_back_gesture_summary"
+        android:defaultValue="false"
+        android:persistent="true" />
+
+    <SwitchPreference
         android:key="pref_sleep_gesture"
         android:title="@string/pref_sleep_gesture_title"
         android:summary="@string/pref_sleep_gesture_summary"

@@ -58,6 +58,16 @@ public class WorkPausedCard extends LinearLayout implements View.OnClickListener
         mBtn = findViewById(R.id.enable_work_apps);
         mBtn.setOnClickListener(this);
 
+        ActivityAllAppsContainerView<?> appsView = mActivityContext.getAppsView();
+        if (appsView != null && appsView.isBottomSearchEnabled()) {
+            setPaddingRelative(
+                    getPaddingStart(),
+                    getResources().getDimensionPixelSize(
+                            R.dimen.all_apps_bottom_search_content_top_padding),
+                    getPaddingEnd(),
+                    getPaddingBottom());
+        }
+
         updateStringFromCache();
     }
 

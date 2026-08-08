@@ -126,6 +126,9 @@ public class AllAppsSearchBarController
             } else {
                 Log.i(TAG, "User tapped ime search button");
             }
+            if (mLauncher.getAppsView().launchFirstSearchResult()) {
+                return true;
+            }
             // selectFocusedView should return SearchTargetEvent that is passed onto onClick
             return mLauncher.getAppsView().getMainAdapterProvider().launchHighlightedItem();
         }

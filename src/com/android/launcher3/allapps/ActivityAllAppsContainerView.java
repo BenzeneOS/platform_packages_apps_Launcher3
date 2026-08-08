@@ -16,6 +16,7 @@
 package com.android.launcher3.allapps;
 
 import static com.android.launcher3.Flags.enableExpandingPauseWorkButton;
+import static com.android.launcher3.LauncherPrefs.ALL_APPS_BOTTOM_SEARCH;
 import static com.android.launcher3.LauncherModel.useModelRepositoryBinding;
 import static com.android.launcher3.allapps.ActivityAllAppsContainerView.AdapterHolder.MAIN;
 import static com.android.launcher3.allapps.ActivityAllAppsContainerView.AdapterHolder.SEARCH;
@@ -57,6 +58,7 @@ import android.view.ViewOutlineProvider;
 import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -155,12 +157,14 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     private final int mHeaderProtectionColor;
     private final int mPrivateSpaceBottomExtraSpace;
     private final Path mTmpPath = new Path();
+    private final Rect mTmpRect = new Rect();
     private final RectF mTmpRectF = new RectF();
     protected AllAppsPagedView mViewPager;
     protected FloatingHeaderView mHeader;
     protected final List<AllAppsRow> mAdditionalHeaderRows = new ArrayList<>();
     protected View mBottomSheetBackground;
     protected RecyclerViewFastScroller mFastScroller;
+    private TextView mFastScrollerPopup;
     private ConstraintLayout mFastScrollLetterLayout;
 
     /**
@@ -177,12 +181,14 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     private int mNavBarScrimHeight = 0;
     private SearchRecyclerView mSearchRecyclerView;
     protected SearchAdapterProvider<?> mMainAdapterProvider;
+    private boolean mKeepSearchFieldFocusedAfterClear;
     private View mBottomSheetHandleArea;
     private boolean mHasWorkApps;
     private boolean mHasPrivateApps;
     private float[] mBottomSheetCornerRadii;
     private ScrimView mScrimView;
     private int mHeaderColor;
+    private int mHeaderOriginalPaddingTop;
     private int mBottomSheetBackgroundColorBlurFallback;
     private int mBottomSheetBackgroundColorOverBlur;
     private int mTabsProtectionAlpha;
@@ -274,8 +280,10 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         mBottomSheetHandleArea = findViewById(R.id.bottom_sheet_handle_area);
         mSearchRecyclerView = findViewById(R.id.search_results_list_view);
         mFastScroller = findViewById(R.id.fast_scroller);
-        mFastScroller.setPopupView(findViewById(R.id.fast_scroller_popup));
+        mFastScrollerPopup = findViewById(R.id.fast_scroller_popup);
+        mFastScroller.setPopupView(mFastScrollerPopup);
         mFastScrollLetterLayout = findViewById(R.id.scroll_letter_layout);
+        mHeaderOriginalPaddingTop = mHeader.getPaddingTop();
         setClipChildren(false);
 
         mSearchContainer = inflateSearchBar();
@@ -283,6 +291,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
             // Add the search box above everything else in this container (if the flag is enabled,
             // it's added to drag layer in onAttach instead).
             addView(mSearchContainer);
+            layoutSearchContainer();
             // The search container is visually at the top of the all apps UI, and should thus be
             // focused by default. It's added to end of the children list, so it needs to be
             // explicitly marked as focused by default.
@@ -358,6 +367,17 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
 
     /** Invoke when the current search session is finished. */
     public void onClearSearchResult() {
+        onClearSearchResult(false);
+    }
+
+    /**
+     * Invoke when the current search session is finished.
+     *
+     * @param keepSearchFieldFocused true when the user edited the query to empty, so the normal app
+     *                               list should return without dismissing the IME.
+     */
+    public void onClearSearchResult(boolean keepSearchFieldFocused) {
+        mKeepSearchFieldFocusedAfterClear = keepSearchFieldFocused;
         getMainAdapterProvider().clearHighlightedItem();
         animateToSearchState(false);
         rebindAdapters();
@@ -412,6 +432,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                 /* onEndRunnable = */ () -> {
                     mIsSearching = goingToSearch;
                     updateSearchResultsVisibility();
+                    updateFastScrollerLayout();
                     int previousPage = getCurrentPage();
                     if (mRebindAdaptersAfterSearchAnimation) {
                         rebindAdapters(false);
@@ -571,16 +592,30 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
             // Will be called at the end of the animation.
             return;
         }
+        boolean keepSearchFieldFocused = currentActivePage != SEARCH
+                && mKeepSearchFieldFocusedAfterClear;
         if (currentActivePage != SEARCH) {
-            mActivityContext.hideKeyboard();
+            if (keepSearchFieldFocused) {
+                mKeepSearchFieldFocusedAfterClear = false;
+            } else {
+                mActivityContext.hideKeyboard();
+            }
+        } else {
+            mKeepSearchFieldFocusedAfterClear = false;
         }
         if (mAH.get(currentActivePage).mRecyclerView != null) {
             mAH.get(currentActivePage).mRecyclerView.bindFastScrollbar(mFastScroller,
                     ALL_APPS_SCROLLER);
         }
+        updateFastScrollerLayout();
         // Header keeps track of active recycler view to properly render header protection.
         mHeader.setActiveRV(currentActivePage);
-        reset(true /* animate */, !isSearching() /* exitSearch */, false /* clearScrim */);
+        reset(true /* animate */,
+                !isSearching() && !keepSearchFieldFocused /* exitSearch */,
+                false /* clearScrim */);
+        if (keepSearchFieldFocused && mSearchUiManager.getEditText() != null) {
+            mSearchUiManager.getEditText().requestFocus();
+        }
 
         mWorkManager.onActivePageChanged(currentActivePage);
     }
@@ -706,6 +741,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         removeView(oldView);
         int layout = showTabs ? R.layout.all_apps_tabs : R.layout.all_apps_rv_layout;
         final View rvContainer = getLayoutInflater().inflate(layout, this, false);
+        updateAppsRVContainerTopSpacing(rvContainer, showTabs);
         addView(rvContainer, index);
         if (showTabs) {
             mViewPager = (AllAppsPagedView) rvContainer;
@@ -734,7 +770,10 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
 
         removeCustomRules(rvContainer);
         removeCustomRules(getSearchRecyclerView());
-        if (isSearchBarFloating()) {
+        if (isBottomSearchEnabled()) {
+            layoutAboveBottomControls(rvContainer, showTabs);
+            layoutSearchResultsAboveBottomControls(getSearchRecyclerView());
+        } else if (isSearchBarFloating()) {
             alignParentTop(rvContainer, showTabs);
             alignParentTop(getSearchRecyclerView(), /* tabs= */ false);
         } else {
@@ -745,10 +784,24 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         updateSearchResultsVisibility();
     }
 
+    private void updateAppsRVContainerTopSpacing(View rvContainer, boolean showTabs) {
+        if (!isBottomSearchEnabled() || !showTabs || !(rvContainer instanceof AllAppsPagedView)) {
+            return;
+        }
+
+        if (rvContainer.getLayoutParams() instanceof MarginLayoutParams lp) {
+            lp.topMargin = 0;
+            rvContainer.setLayoutParams(lp);
+        }
+        rvContainer.setPadding(rvContainer.getPaddingLeft(), 0, rvContainer.getPaddingRight(),
+                rvContainer.getPaddingBottom());
+    }
+
     void setupHeader() {
         mAdditionalHeaderRows.forEach(row -> mHeader.onPluginDisconnected(row));
 
         mHeader.setVisibility(View.VISIBLE);
+        updateHeaderPadding();
         boolean tabsHidden = !mUsingTabs;
         mHeader.setup(
                 mAH.get(AdapterHolder.MAIN).mRecyclerView,
@@ -757,7 +810,9 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                 getCurrentPage(),
                 tabsHidden);
 
-        int padding = mHeader.getMaxTranslation();
+        int padding = isBottomSearchEnabled()
+                ? getBottomSearchContentTopPadding()
+                : mHeader.getMaxTranslation();
         mAH.forEach(adapterHolder -> {
             adapterHolder.mPadding.top = padding;
             adapterHolder.applyPadding();
@@ -768,11 +823,17 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         mAdditionalHeaderRows.forEach(row -> mHeader.onPluginConnected(row, mActivityContext));
 
         removeCustomRules(mHeader);
-        if (isSearchBarFloating()) {
+        if (isBottomSearchEnabled()) {
+            layoutHeaderAboveSearchContainer();
+        } else if (isSearchBarFloating()) {
             alignParentTop(mHeader, false /* includeTabsMargin */);
         } else {
             layoutBelowSearchContainer(mHeader, false /* includeTabsMargin */);
         }
+        if (isBottomSearchEnabled() && !mUsingTabs && !isSearching()) {
+            mHeader.setVisibility(GONE);
+        }
+        updateFastScrollerLayout();
     }
 
     /**
@@ -786,7 +847,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     @Override
     public void addChildrenForAccessibility(ArrayList<View> arrayList) {
         super.addChildrenForAccessibility(arrayList);
-        if (!Flags.floatingSearchBar()) {
+        if (!Flags.floatingSearchBar() && !isBottomSearchEnabled()) {
             // Searchbox container is visually at the top of the all apps UI but it's present in
             // end of the children list.
             // We need to move the searchbox to the top in a11y tree for a11y services to read the
@@ -800,6 +861,12 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     }
 
     protected void updateHeaderScroll(int scrolledOffset) {
+        if (isBottomSearchEnabled()) {
+            if (mSearchUiManager.getEditText() != null) {
+                mSearchUiManager.setBackgroundVisibility(true, 1f);
+            }
+            return;
+        }
         float prog = Utilities.boundToRange((float) scrolledOffset / mHeaderThreshold, 0f, 1f);
         int headerColor = getHeaderColor(prog);
         int tabsAlpha = mHeader.getPeripheralProtectionHeight(/* expectedHeight */ false) == 0 ? 0
@@ -845,6 +912,11 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
      */
     protected boolean isSearchBarFloating() {
         return mSearchUiDelegate.isSearchBarFloating();
+    }
+
+    /** Whether search and profile controls are embedded at the bottom of All Apps. */
+    public boolean isBottomSearchEnabled() {
+        return !isSearchBarFloating() && ALL_APPS_BOTTOM_SEARCH.get(getContext());
     }
 
     /**
@@ -901,6 +973,254 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                 + dp.getAllAppsIconStartMargin(mActivityContext);
     }
 
+    private void layoutSearchContainer() {
+        if (!(mSearchContainer.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams layoutParams = (LayoutParams) mSearchContainer.getLayoutParams();
+        removeRelativeLayoutRules(layoutParams);
+        if (isBottomSearchEnabled()) {
+            layoutParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        } else {
+            layoutParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        }
+    }
+
+    private void updateHeaderPadding() {
+        int topPadding = isBottomSearchEnabled() && mUsingTabs ? 0 : mHeaderOriginalPaddingTop;
+        if (mHeader.getPaddingTop() != topPadding) {
+            mHeader.setPadding(mHeader.getPaddingLeft(), topPadding, mHeader.getPaddingRight(),
+                    mHeader.getPaddingBottom());
+        }
+    }
+
+    private void layoutAboveBottomControls(View v, boolean includeTabsMargin) {
+        if (!(v.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams layoutParams = (LayoutParams) v.getLayoutParams();
+        layoutParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        layoutParams.addRule(RelativeLayout.ABOVE,
+                includeTabsMargin ? R.id.all_apps_header : R.id.search_container_all_apps);
+        layoutParams.topMargin = 0;
+        layoutParams.bottomMargin = includeTabsMargin ? 0 : getBottomSearchGapAboveSearchBar();
+    }
+
+    private void layoutSearchResultsAboveBottomControls(View v) {
+        if (!(v.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams layoutParams = (LayoutParams) v.getLayoutParams();
+        removeRelativeLayoutRules(layoutParams);
+        layoutParams.addRule(RelativeLayout.ABOVE, R.id.search_container_all_apps);
+        layoutParams.height = getBottomSearchResultsHeight();
+        layoutParams.topMargin = 0;
+        layoutParams.bottomMargin = getBottomSearchGapAboveSearchBar();
+        v.setLayoutParams(layoutParams);
+    }
+
+    private void updateFastScrollerLayout() {
+        if (mFastScroller == null || mFastScrollLetterLayout == null || mFastScrollerPopup == null) {
+            return;
+        }
+        if (isSearching() || mFastScroller.getVisibility() != VISIBLE) {
+            return;
+        }
+
+        if (isBottomSearchEnabled() && getFastScrollerBounds(mTmpRect)) {
+            int topMargin = Math.max(0, mTmpRect.top - getPaddingTop());
+            layoutFastScrollerView(mFastScroller, topMargin, getHeight() - mTmpRect.bottom,
+                    true);
+            layoutFastScrollerView(mFastScrollLetterLayout, topMargin,
+                    getHeight() - mTmpRect.bottom, true);
+            layoutFastScrollerView(mFastScrollerPopup, topMargin, 0, false);
+        } else {
+            int topMargin = getResources().getDimensionPixelSize(
+                    R.dimen.all_apps_header_bottom_padding);
+            layoutFastScrollerViewAlignedToHeader(mFastScroller, topMargin, true);
+            layoutFastScrollerViewAlignedToHeader(mFastScrollLetterLayout, topMargin, true);
+            layoutFastScrollerViewAlignedToHeader(mFastScrollerPopup, topMargin, false);
+        }
+    }
+
+    private boolean getActiveRecyclerViewBounds(Rect out) {
+        AllAppsRecyclerView rv = getActiveRecyclerView();
+        if (rv == null || rv.getWidth() == 0 || rv.getHeight() == 0) {
+            return false;
+        }
+
+        out.set(0, 0, rv.getWidth(), rv.getHeight());
+        offsetDescendantRectToMyCoords(rv, out);
+        return true;
+    }
+
+    private boolean getFastScrollerBounds(Rect out) {
+        if (!getActiveRecyclerViewBounds(out)) {
+            return false;
+        }
+        if (isBottomSearchEnabled()) {
+            if (!isSearching()) {
+                View appsContainer = getAppsRecyclerViewContainer();
+                if (appsContainer != null && appsContainer.getWidth() > 0
+                        && appsContainer.getHeight() > 0) {
+                    int recyclerBottom = out.bottom;
+                    out.set(0, 0, appsContainer.getWidth(), appsContainer.getHeight());
+                    offsetDescendantRectToMyCoords(appsContainer, out);
+                    out.bottom = recyclerBottom;
+                }
+            }
+            out.top = getBottomSearchAppAreaTop();
+            if (!isSearching()
+                    && mUsingTabs
+                    && mHeader != null
+                    && mHeader.getVisibility() == VISIBLE
+                    && mHeader.getTop() > 0) {
+                out.bottom = Math.min(out.bottom, mHeader.getTop());
+            }
+        }
+        return true;
+    }
+
+    private int getBottomSearchAppAreaTop() {
+        if (mBottomSheetBackground == null) {
+            return getBottomSheetHandleAreaHeight();
+        }
+
+        int panelTop = Math.max(0, mBottomSheetBackground.getTop());
+        return panelTop + getBottomSheetHandleAreaHeight();
+    }
+
+    private int getBottomSearchContentTopPadding() {
+        return isBottomSearchEnabled()
+                ? getResources().getDimensionPixelSize(
+                        R.dimen.all_apps_bottom_search_content_top_padding)
+                : 0;
+    }
+
+    private int getBottomSearchGapAboveSearchBar() {
+        return getResources().getDimensionPixelSize(R.dimen.all_apps_header_bottom_padding);
+    }
+
+    private int getBottomSearchResultsHeight() {
+        return mActivityContext.getDeviceProfile().getAllAppsProfile().getCellHeightPx();
+    }
+
+    private int getBottomSearchResultsHorizontalPadding(DeviceProfile grid) {
+        if (!isBottomSearchEnabled() || mSearchContainer == null
+                || mSearchContainer.getWidth() <= 0 || getWidth() <= 0) {
+            return grid.getAllAppsProfile().getPadding().left;
+        }
+
+        int leftInset = Math.max(0, mSearchContainer.getLeft());
+        int rightInset = Math.max(0, getWidth() - mSearchContainer.getRight());
+        return Math.max(grid.getAllAppsProfile().getPadding().left,
+                Math.min(leftInset, rightInset));
+    }
+
+    private void updateBottomSearchResultsHorizontalPadding() {
+        if (!isBottomSearchEnabled()) {
+            return;
+        }
+
+        AdapterHolder searchHolder = mAH.get(SEARCH);
+        if (searchHolder == null || searchHolder.mRecyclerView == null) {
+            return;
+        }
+
+        int horizontalPadding = getBottomSearchResultsHorizontalPadding(
+                mActivityContext.getDeviceProfile());
+        if (searchHolder.mPadding.left != horizontalPadding
+                || searchHolder.mPadding.right != horizontalPadding) {
+            searchHolder.mPadding.left = horizontalPadding;
+            searchHolder.mPadding.right = horizontalPadding;
+            searchHolder.applyPadding();
+        }
+    }
+
+    private void updateBottomSearchTopClip() {
+        if (!isBottomSearchEnabled()) {
+            return;
+        }
+        clearChildClipBounds(getAppsRecyclerViewContainer());
+        clearChildClipBounds(getSearchRecyclerView());
+    }
+
+    private void clearChildClipBounds(View v) {
+        if (v != null) {
+            v.setClipBounds(null);
+        }
+    }
+
+    private void layoutFastScrollerView(View v, int topMargin, int bottomMargin,
+            boolean alignBottom) {
+        if (!(v.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams lp = (LayoutParams) v.getLayoutParams();
+        int boundedTopMargin = Math.max(0, topMargin);
+        int boundedBottomMargin = alignBottom ? Math.max(0, bottomMargin) : 0;
+        if (lp.getRule(RelativeLayout.ALIGN_PARENT_TOP) == RelativeLayout.TRUE
+                && lp.getRule(RelativeLayout.ALIGN_PARENT_END) == RelativeLayout.TRUE
+                && lp.getRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                        == (alignBottom ? RelativeLayout.TRUE : 0)
+                && lp.topMargin == boundedTopMargin
+                && lp.bottomMargin == boundedBottomMargin) {
+            return;
+        }
+
+        removeRelativeLayoutRules(lp);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_END);
+        if (alignBottom) {
+            lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        }
+        lp.bottomMargin = boundedBottomMargin;
+        lp.topMargin = boundedTopMargin;
+        v.setLayoutParams(lp);
+    }
+
+    private void layoutFastScrollerViewAlignedToHeader(View v, int topMargin,
+            boolean alignBottom) {
+        if (!(v.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams lp = (LayoutParams) v.getLayoutParams();
+        if (lp.getRule(RelativeLayout.ALIGN_TOP) == R.id.all_apps_header
+                && lp.getRule(RelativeLayout.ALIGN_PARENT_END) == RelativeLayout.TRUE
+                && lp.getRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                        == (alignBottom ? RelativeLayout.TRUE : 0)
+                && lp.topMargin == topMargin
+                && lp.bottomMargin == 0) {
+            return;
+        }
+
+        removeRelativeLayoutRules(lp);
+        lp.addRule(RelativeLayout.ALIGN_TOP, R.id.all_apps_header);
+        lp.addRule(RelativeLayout.ALIGN_PARENT_END);
+        if (alignBottom) {
+            lp.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        }
+        lp.topMargin = topMargin;
+        lp.bottomMargin = 0;
+        v.setLayoutParams(lp);
+    }
+
+    private void layoutHeaderAboveSearchContainer() {
+        if (!(mHeader.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
+            return;
+        }
+
+        RelativeLayout.LayoutParams layoutParams = (LayoutParams) mHeader.getLayoutParams();
+        layoutParams.addRule(RelativeLayout.ABOVE, R.id.search_container_all_apps);
+        layoutParams.topMargin = 0;
+        layoutParams.bottomMargin = 0;
+    }
+
     private void layoutBelowSearchContainer(View v, boolean includeTabsMargin) {
         if (!(v.getLayoutParams() instanceof RelativeLayout.LayoutParams)) {
             return;
@@ -916,6 +1236,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                     R.dimen.all_apps_header_pill_height);
         }
         layoutParams.topMargin = topMargin;
+        layoutParams.bottomMargin = 0;
     }
 
     private void alignParentTop(View v, boolean includeTabsMargin) {
@@ -930,6 +1251,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                         ? getContext().getResources().getDimensionPixelSize(
                         R.dimen.all_apps_header_pill_height)
                         : 0;
+        layoutParams.bottomMargin = 0;
     }
 
     private void removeCustomRules(View v) {
@@ -938,9 +1260,15 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         }
 
         RelativeLayout.LayoutParams layoutParams = (LayoutParams) v.getLayoutParams();
+        removeRelativeLayoutRules(layoutParams);
+    }
+
+    private void removeRelativeLayoutRules(RelativeLayout.LayoutParams layoutParams) {
         layoutParams.removeRule(RelativeLayout.ABOVE);
+        layoutParams.removeRule(RelativeLayout.BELOW);
         layoutParams.removeRule(RelativeLayout.ALIGN_TOP);
         layoutParams.removeRule(RelativeLayout.ALIGN_PARENT_TOP);
+        layoutParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
     }
 
     protected BaseAllAppsAdapter createAdapter(AlphabeticalAppsList appsList) {
@@ -1098,7 +1426,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         }
         if (isSearching()
                 && mActivityContext.getDragLayer().isEventOverView(getVisibleContainerView(), ev)) {
-            // if in search state, consume touch event.
+            // If in search state, consume the touch event.
             return true;
         }
         return false;
@@ -1199,6 +1527,9 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
             setPadding(grid.getAllAppsProfile().getLeftRightMargin(), topPadding,
                     grid.getAllAppsProfile().getLeftRightMargin(), 0);
         }
+        if (!isSearchBarFloating()) {
+            layoutSearchContainer();
+        }
         InsettableFrameLayout.dispatchInsets(this, insets);
     }
 
@@ -1224,6 +1555,68 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     }
 
     @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        updateBottomSearchTopClip();
+        updateBottomSearchResultsHorizontalPadding();
+        updateFastScrollerLayout();
+        if (mWorkManager.getWorkUtilityView() != null) {
+            mWorkManager.getWorkUtilityView().setInsets(mInsets);
+        }
+    }
+
+    @Override
+    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
+        if (shouldClipSearchBoundedChild(child)) {
+            int saveCount = canvas.save();
+            canvas.clipRect(
+                    child.getLeft(),
+                    getSearchBoundedChildClipTop(child),
+                    child.getRight(),
+                    getSearchBoundedChildClipBottom(child));
+            boolean result = super.drawChild(canvas, child, drawingTime);
+            canvas.restoreToCount(saveCount);
+            return result;
+        }
+        return super.drawChild(canvas, child, drawingTime);
+    }
+
+    private boolean shouldClipSearchBoundedChild(View child) {
+        return isBottomSearchEnabled()
+                && child != null
+                && child.getWidth() > 0
+                && child.getHeight() > 0
+                && (child == getAppsRecyclerViewContainer()
+                        || child == getSearchRecyclerView());
+    }
+
+    private int getSearchBoundedChildClipTop(View child) {
+        return Math.max(child.getTop(), getBottomSearchAppAreaTop());
+    }
+
+    private int getSearchBoundedChildClipBottom(View child) {
+        int clipBottom = child.getBottom();
+        if (!isBottomSearchEnabled()) {
+            return clipBottom;
+        }
+
+        int bottomControlsTop = getBottomSearchControlsTop(child);
+        return bottomControlsTop > 0 ? Math.min(clipBottom, bottomControlsTop) : clipBottom;
+    }
+
+    private int getBottomSearchControlsTop(View child) {
+        if (child == getAppsRecyclerViewContainer()
+                && !isSearching()
+                && mUsingTabs
+                && mHeader != null
+                && mHeader.getVisibility() == VISIBLE
+                && mHeader.getTop() > 0) {
+            return mHeader.getTop();
+        }
+        return mSearchContainer != null ? mSearchContainer.getTop() : 0;
+    }
+
+    @Override
     protected void dispatchDraw(Canvas canvas) {
         super.dispatchDraw(canvas);
 
@@ -1243,7 +1636,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
         } else {
             getSearchRecyclerView().setVisibility(GONE);
             getAppsRecyclerViewContainer().setVisibility(VISIBLE);
-            mHeader.setVisibility(VISIBLE);
+            mHeader.setVisibility(isBottomSearchEnabled() && !mUsingTabs ? GONE : VISIBLE);
         }
         if (mHeader.isSetUp()) {
             mHeader.setActiveRV(getCurrentPage());
@@ -1251,13 +1644,67 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
     }
 
     private void applyAdapterSideAndBottomPaddings(DeviceProfile grid) {
-        int bottomPadding = Math.max(mInsets.bottom, mNavBarScrimHeight);
+        int bottomPadding = isBottomSearchEnabled()
+                ? 0
+                : Math.max(mInsets.bottom, mNavBarScrimHeight);
         mAH.forEach(adapterHolder -> {
             adapterHolder.mPadding.bottom = bottomPadding;
-            adapterHolder.mPadding.left = grid.getAllAppsProfile().getPadding().left;
-            adapterHolder.mPadding.right = grid.getAllAppsProfile().getPadding().right;
+            if (isBottomSearchEnabled()) {
+                adapterHolder.mPadding.top = adapterHolder.isSearch()
+                        ? 0
+                        : getBottomSearchContentTopPadding();
+            }
+            int horizontalPadding = isBottomSearchEnabled() && adapterHolder.isSearch()
+                    ? getBottomSearchResultsHorizontalPadding(grid)
+                    : grid.getAllAppsProfile().getPadding().left;
+            adapterHolder.mPadding.left = horizontalPadding;
+            adapterHolder.mPadding.right = isBottomSearchEnabled() && adapterHolder.isSearch()
+                    ? horizontalPadding
+                    : grid.getAllAppsProfile().getPadding().right;
             adapterHolder.applyPadding();
         });
+    }
+
+    private int getBottomSheetHandleAreaHeight() {
+        if (!isBottomSearchEnabled()) {
+            return 0;
+        }
+        if (mBottomSheetHandleArea != null && mBottomSheetHandleArea.getHeight() > 0) {
+            return mBottomSheetHandleArea.getHeight();
+        }
+        return getResources().getDimensionPixelSize(R.dimen.bottom_sheet_handle_area_height);
+    }
+
+    private int getSearchBarHeight() {
+        if (mSearchContainer != null && mSearchContainer.getHeight() > 0) {
+            return mSearchContainer.getHeight();
+        }
+        return getResources().getDimensionPixelSize(R.dimen.all_apps_search_bar_field_height);
+    }
+
+    int getBottomSearchControlsHeight() {
+        if (!isBottomSearchEnabled()) {
+            return 0;
+        }
+
+        int height = getSearchBarHeight()
+                + getResources().getDimensionPixelSize(
+                        R.dimen.all_apps_bottom_search_bar_bottom_padding);
+        if (mUsingTabs && mHeader != null) {
+            height += getBottomSearchHeaderHeight();
+        }
+        return height;
+    }
+
+    private int getBottomSearchHeaderHeight() {
+        int fallbackHeight = getResources().getDimensionPixelSize(
+                R.dimen.all_apps_header_pill_height)
+                + getResources().getDimensionPixelSize(R.dimen.all_apps_tabs_margin_top)
+                + getResources().getDimensionPixelSize(R.dimen.all_apps_header_bottom_padding);
+        if (mHeader != null && mHeader.getHeight() > 0) {
+            return Math.max(mHeader.getHeight(), fallbackHeight);
+        }
+        return fallbackHeight;
     }
 
     private void setDeviceManagementResources() {
@@ -1330,6 +1777,23 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
 
     public AlphabeticalAppsList getSearchResultList() {
         return mAH.get(SEARCH).mAppsList;
+    }
+
+    public boolean launchFirstSearchResult() {
+        List<AdapterItem> searchResults = getSearchResultList().getAdapterItems();
+        for (int i = 0; i < searchResults.size(); i++) {
+            AdapterItem item = searchResults.get(i);
+            if (BaseAllAppsAdapter.isIconViewType(item.viewType) && item.itemInfo != null) {
+                RecyclerView.ViewHolder holder =
+                        getSearchRecyclerView().findViewHolderForAdapterPosition(i);
+                if (holder != null && holder.itemView != null && holder.itemView.performClick()) {
+                    return true;
+                }
+                return mActivityContext.startActivitySafely(
+                        null, item.itemInfo.getIntent(), item.itemInfo) != null;
+            }
+        }
+        return false;
     }
 
     public AlphabeticalAppsList getPersonalAppList() {
@@ -1465,6 +1929,10 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
 
     private void applyHeaderProtection(Canvas canvas, float scale, float backgroundAlpha,
             float topNoScale, float topWithScale, float leftWithScale, float rightWithScale) {
+        if (isBottomSearchEnabled()) {
+            return;
+        }
+
         if (DEBUG_HEADER_PROTECTION) {
             mHeaderPaint.setColor(Color.MAGENTA);
             mHeaderPaint.setAlpha(255);
@@ -1526,6 +1994,9 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
      * The height of the header protection as if the user scrolled down the app list.
      */
     float getHeaderProtectionHeight() {
+        if (isBottomSearchEnabled()) {
+            return 0;
+        }
         float headerBottom = getHeaderBottom() - getTranslationY();
         if (mUsingTabs) {
             return headerBottom + mHeader.getPeripheralProtectionHeight(/* expectedHeight */ true);
@@ -1637,7 +2108,7 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                         bottomOffset = mPrivateSpaceBottomExtraSpace;
                     }
                 }
-                if (isSearchBarFloating()) {
+                if (!isBottomSearchEnabled() && isSearchBarFloating()) {
                     bottomOffset += mSearchContainer.getHeight();
                 }
                 mRecyclerView.setPadding(mPadding.left, mPadding.top, mPadding.right,

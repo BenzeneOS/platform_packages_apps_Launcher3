@@ -358,6 +358,13 @@ constructor(@ApplicationContext private val encryptedContext: Context) {
         @JvmField val SLEEP_GESTURE = backedUpItem("pref_sleep_gesture", true)
         @JvmField val SLEEP_GESTURE_HAPTIC = backedUpItem("pref_sleep_gesture_haptic", true)
 
+        @JvmField val HOME_BOTTOM_SEARCH = backedUpItem("pref_home_bottom_search", false)
+        @JvmField
+        val ALL_APPS_BOTTOM_SEARCH = backedUpItem("pref_all_apps_bottom_search", false)
+        @JvmField
+        val ALLOW_HOME_BACK_GESTURE =
+            backedUpItem("pref_allow_home_back_gesture", false)
+
         @JvmStatic
         fun <T> backedUpItem(
             sharedPrefKey: String,
