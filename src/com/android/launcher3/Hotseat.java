@@ -16,9 +16,13 @@
 
 package com.android.launcher3;
 
+import static android.text.style.DynamicDrawableSpan.ALIGN_CENTER;
 import static android.view.View.MeasureSpec.makeMeasureSpec;
 
 import static com.android.launcher3.LauncherAnimUtils.VIEW_TRANSLATE_X;
+import static com.android.launcher3.LauncherPrefs.HOME_BOTTOM_SEARCH;
+import static com.android.launcher3.Utilities.prefixTextWithIcon;
+import static com.android.launcher3.icons.IconNormalizer.ICON_VISIBLE_AREA_FACTOR;
 import static com.android.launcher3.util.MultiTranslateDelegate.INDEX_BUBBLE_ADJUSTMENT_ANIM;
 
 import android.animation.AnimatorSet;
@@ -28,11 +32,13 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -50,6 +56,7 @@ import com.android.launcher3.util.MultiPropertyFactory;
 import com.android.launcher3.util.MultiPropertyFactory.MultiProperty;
 import com.android.launcher3.util.MultiTranslateDelegate;
 import com.android.launcher3.util.MultiValueAlpha;
+import com.android.launcher3.util.Themes;
 import com.android.launcher3.views.ActivityContext;
 import com.android.launcher3.widget.PendingAddWidgetInfo;
 
@@ -109,7 +116,10 @@ public class Hotseat extends CellLayout implements Insettable {
 
     public Hotseat(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
-        mQsb = LauncherComponentProvider.get(context).getQsbWidgetFactory().createView(this);
+        mQsb = isHomeBottomSearchEnabled()
+                ? LayoutInflater.from(context).inflate(
+                        R.layout.search_container_hotseat_drawer, this, false)
+                : LauncherComponentProvider.get(context).getQsbWidgetFactory().createView(this);
 
         addView(mQsb);
         mIconsAlphaChannels = new MultiValueAlpha(getShortcutsAndWidgets(),
@@ -123,6 +133,60 @@ public class Hotseat extends CellLayout implements Insettable {
                 VIEW_TRANSLATE_X, ICONS_TRANSLATION_X_CHANNELS_COUNT, Float::sum);
         mQsbAlphaChannels = new MultiValueAlpha(mQsb, ALPHA_CHANNEL_CHANNELS_COUNT);
         mQsbAlphaChannels.setUpdateVisibility(true);
+        updateHomeBottomSearchStyle();
+
+        if (isHomeBottomSearchEnabled()) {
+            mQsb.setOnClickListener(v -> {
+                if (mActivity instanceof Launcher) {
+                    ((Launcher) mActivity).toggleAllApps(true);
+                }
+            });
+        }
+    }
+
+    private boolean isHomeBottomSearchEnabled() {
+        return HOME_BOTTOM_SEARCH.get(getContext());
+    }
+
+    private void updateHomeBottomSearchStyle() {
+        if (!isHomeBottomSearchEnabled() || !(mQsb instanceof TextView searchView)) {
+            return;
+        }
+
+        mQsb.setBackgroundResource(R.drawable.bg_all_apps_searchbox);
+        searchView.setTextColor(
+                Themes.getAttrColor(getContext(), android.R.attr.colorAccent));
+        searchView.setText(prefixTextWithIcon(getContext(), R.drawable.ic_allapps_search,
+                getResources().getText(R.string.all_apps_search_bar_hint), ALIGN_CENTER));
+    }
+
+    private int getHomeBottomSearchWidth(int hotseatWidth) {
+        DeviceProfile dp = mActivity.getDeviceProfile();
+        int rowWidth = Math.max(0, dp.getDeviceProperties().getAvailableWidthPx()
+                - dp.getAllAppsProfile().getPadding().left
+                - dp.getAllAppsProfile().getPadding().right);
+        int cellWidth = DeviceProfile.calculateCellWidth(rowWidth,
+                dp.getWorkspaceProfile().getCellLayoutBorderSpacePx().x,
+                dp.getHotseatProfile().getNumShownIcons());
+        int iconVisibleSize =
+                Math.round(ICON_VISIBLE_AREA_FACTOR * dp.getWorkspaceProfile().getIconSizePx());
+        int iconPadding = cellWidth - iconVisibleSize;
+        int drawerSearchPadding =
+                2 * getResources().getDimensionPixelSize(R.dimen.all_apps_search_bar_padding);
+        return Math.min(Math.max(0, hotseatWidth),
+                Math.max(0, rowWidth - iconPadding + drawerSearchPadding));
+    }
+
+    private int getHomeBottomSearchHeight() {
+        return getResources().getDimensionPixelSize(R.dimen.all_apps_search_bar_field_height);
+    }
+
+    private int getHomeBottomSearchBottomPadding() {
+        return getResources().getDimensionPixelSize(R.dimen.all_apps_search_bar_bottom_padding);
+    }
+
+    private int getHomeBottomSearchReservedHeight() {
+        return mActivity.getDeviceProfile().getHomeBottomSearchReservedHeight(getContext());
     }
 
     /** Provides translation X for hotseat icons for the channel. */
@@ -285,15 +349,24 @@ public class Hotseat extends CellLayout implements Insettable {
             lp.gravity = Gravity.BOTTOM;
             lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
 
-            // Since QSB is laid out relative to bottom, it expects a certain amount of available
-            // space in its parent (hotseat). If hotseatBarSizePx is less than that, we let it go
-            // beyond and offset the content accordingly.
-            int totalHeightForQsb = grid.getQsbOffsetY() + grid.getHotseatProfile().getQsbHeight();
-            topOverlap = Math.max(0, totalHeightForQsb - grid.getHotseatProfile().getBarSizePx());
-            lp.height = grid.getHotseatProfile().getBarSizePx() + topOverlap;
+            if (isHomeBottomSearchEnabled()) {
+                lp.height = grid.getHotseatBarSizePx(getContext());
+            } else {
+                // Since QSB is laid out relative to bottom, it expects a certain amount of
+                // available space in its parent (hotseat). If the hotseat is shorter than that,
+                // let it go beyond and offset the content accordingly.
+                int totalHeightForQsb =
+                        grid.getQsbOffsetY() + grid.getHotseatProfile().getQsbHeight();
+                topOverlap = Math.max(
+                        0, totalHeightForQsb - grid.getHotseatProfile().getBarSizePx());
+                lp.height = grid.getHotseatProfile().getBarSizePx() + topOverlap;
+            }
         }
 
         Rect padding = grid.getHotseatLayoutPadding(getContext());
+        if (isHomeBottomSearchEnabled() && !grid.isVerticalBarLayout()) {
+            padding.bottom += getHomeBottomSearchReservedHeight();
+        }
         setPadding(padding.left, padding.top + topOverlap, padding.right, padding.bottom);
         setLayoutParams(lp);
         InsettableFrameLayout.dispatchInsets(this, insets);
@@ -338,10 +411,14 @@ public class Hotseat extends CellLayout implements Insettable {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
         DeviceProfile dp = mActivity.getDeviceProfile();
-        mQsb.measure(
-                makeMeasureSpec(dp.getHotseatProfile().getQsbWidth(), MeasureSpec.EXACTLY),
-                makeMeasureSpec(dp.getHotseatProfile().getQsbHeight(), MeasureSpec.EXACTLY)
-        );
+        int qsbWidth = dp.getHotseatProfile().getQsbWidth();
+        int qsbHeight = dp.getHotseatProfile().getQsbHeight();
+        if (isHomeBottomSearchEnabled()) {
+            qsbWidth = getHomeBottomSearchWidth(MeasureSpec.getSize(widthMeasureSpec));
+            qsbHeight = getHomeBottomSearchHeight();
+        }
+        mQsb.measure(makeMeasureSpec(Math.max(qsbWidth, 0), MeasureSpec.EXACTLY),
+                makeMeasureSpec(Math.max(qsbHeight, 0), MeasureSpec.EXACTLY));
     }
 
     @Override
@@ -360,8 +437,16 @@ public class Hotseat extends CellLayout implements Insettable {
         }
         int right = left + qsbMeasuredWidth;
 
-        int bottom = b - t - dp.getQsbOffsetY();
-        int top = bottom - dp.getHotseatProfile().getQsbHeight();
+        int bottom;
+        int qsbHeight;
+        if (isHomeBottomSearchEnabled()) {
+            bottom = b - t - getHomeBottomSearchBottomPadding();
+            qsbHeight = getHomeBottomSearchHeight();
+        } else {
+            bottom = b - t - dp.getQsbOffsetY();
+            qsbHeight = dp.getHotseatProfile().getQsbHeight();
+        }
+        int top = bottom - qsbHeight;
         mQsb.layout(left, top, right, bottom);
     }
 

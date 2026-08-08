@@ -356,11 +356,21 @@ public class AllAppsRecyclerView extends FastScrollRecyclerView {
 
     @Override
     public int getScrollBarTop() {
+        ActivityAllAppsContainerView<?> appsView = ActivityContext.lookupContext(getContext())
+                .getAppsView();
+        if (appsView != null && appsView.isBottomSearchEnabled()) {
+            return 0;
+        }
         return getResources().getDimensionPixelOffset(R.dimen.all_apps_header_top_padding);
     }
 
     @Override
     public int getScrollBarMarginBottom() {
+        ActivityAllAppsContainerView<?> appsView = ActivityContext.lookupContext(getContext())
+                .getAppsView();
+        if (appsView != null && appsView.isBottomSearchEnabled()) {
+            return 0;
+        }
         return getRootWindowInsets() == null ? 0
                 : getRootWindowInsets().getSystemWindowInsetBottom();
     }

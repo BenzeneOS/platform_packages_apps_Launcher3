@@ -443,6 +443,13 @@
     <!-- Text description of the setting that allows the automatic placement of launcher shortcuts for applications and games installed on the device [CHAR LIMIT=NONE] -->
     <string name="auto_add_shortcuts_description">For new apps</string>
 
+    <string name="pref_home_bottom_search_title">Bottom search box on home screen</string>
+    <string name="pref_home_bottom_search_summary">Show a search box above the hotseat that opens app search</string>
+    <string name="pref_all_apps_bottom_search_title">Bottom app drawer search</string>
+    <string name="pref_all_apps_bottom_search_summary">Move app drawer search and profile tabs to the bottom</string>
+    <string name="pref_allow_home_back_gesture_title">Allow back gesture on home screen</string>
+    <string name="pref_allow_home_back_gesture_summary">Keep the back gesture active on the home screen</string>
+
     <!-- Label on an icon that references an uninstalled package, for which we have no information about when it might be installed. [CHAR_LIMIT=15] -->
     <string name="package_state_unknown">Unknown</string>
 

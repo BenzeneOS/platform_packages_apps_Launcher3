@@ -54,6 +54,7 @@ import android.os.TransactionTooLargeException;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.TextUtils;
+import android.text.style.DynamicDrawableSpan;
 import android.text.style.TtsSpan;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -588,12 +589,21 @@ public final class Utilities {
      * Prefixes a text with the provided icon
      */
     public static CharSequence prefixTextWithIcon(Context context, int iconRes, CharSequence msg) {
+        return prefixTextWithIcon(
+                context, iconRes, msg, DynamicDrawableSpan.ALIGN_BOTTOM);
+    }
+
+    /**
+     * Prefixes a text with the provided icon using the requested vertical alignment.
+     */
+    public static CharSequence prefixTextWithIcon(
+            Context context, int iconRes, CharSequence msg, int verticalAlignment) {
         // Update the hint to contain the icon.
         // Prefix the original hint with two spaces. The first space gets replaced by the icon
         // using span. The second space is used for a singe space character between the hint
         // and the icon.
         SpannableString spanned = new SpannableString("  " + msg);
-        spanned.setSpan(new TintedDrawableSpan(context, iconRes),
+        spanned.setSpan(new TintedDrawableSpan(context, iconRes, verticalAlignment),
                 0, 1, Spannable.SPAN_EXCLUSIVE_INCLUSIVE);
         return spanned;
     }

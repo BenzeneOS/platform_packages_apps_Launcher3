@@ -393,6 +393,21 @@ public class Launcher extends StatefulActivity<LauncherState>
 
     private @Nullable SafeCloseable mNaturalScrollingChangedSafeCloseable;
 
+    private final LauncherPrefChangeListener mSearchOptionsChangedListener = key -> {
+        if (LauncherPrefs.ALLOW_HOME_BACK_GESTURE.getSharedPrefKey().equals(key)) {
+            updateDisallowBack();
+            return;
+        }
+        if (LauncherPrefs.HOME_BOTTOM_SEARCH.getSharedPrefKey().equals(key)
+                || LauncherPrefs.ALL_APPS_BOTTOM_SEARCH.getSharedPrefKey().equals(key)) {
+            getWindow().getDecorView().post(() -> {
+                if (!isDestroyed()) {
+                    recreate();
+                }
+            });
+        }
+    };
+
     private StartupLatencyLogger mStartupLatencyLogger;
 
     protected WallpaperThemeManager mWallpaperThemeManager;
@@ -421,6 +436,11 @@ public class Launcher extends StatefulActivity<LauncherState>
         initDeviceProfile(idp);
         idp.addOnChangeListener(this);
         mSharedPrefs = LauncherPrefs.getPrefs(this);
+        LauncherPrefs.get(this).addListener(
+                mSearchOptionsChangedListener,
+                LauncherPrefs.HOME_BOTTOM_SEARCH,
+                LauncherPrefs.ALL_APPS_BOTTOM_SEARCH,
+                LauncherPrefs.ALLOW_HOME_BACK_GESTURE);
         mAccessibilityDelegate = createAccessibilityDelegate();
 
         initDragController();
@@ -1496,14 +1516,26 @@ public class Launcher extends StatefulActivity<LauncherState>
             getStateManager().goToState(ALL_APPS, true /* animated */,
                     new AnimationSuccessListener() {
                         @Override
+                        public void onAnimationStart(Animator animator) {
+                            if (focusSearch) {
+                                showAllAppsSearchKeyboard();
+                            }
+                        }
+
+                        @Override
                         public void onAnimationSuccess(Animator animator) {
-                            if (focusSearch
-                                    && mAppsView.getSearchUiManager().getEditText() != null) {
-                                mAppsView.getSearchUiManager().getEditText()
-                                    .requestFocusExplicitly();
+                            if (focusSearch) {
+                                showAllAppsSearchKeyboard();
                             }
                         }
                     });
+        }
+    }
+
+    private void showAllAppsSearchKeyboard() {
+        ExtendedEditText editText = mAppsView.getSearchUiManager().getEditText();
+        if (editText != null && !editText.showKeyboard()) {
+            editText.post(editText::showKeyboard);
         }
     }
 
@@ -1581,6 +1613,11 @@ public class Launcher extends StatefulActivity<LauncherState>
             mNaturalScrollingChangedSafeCloseable.close();
             mNaturalScrollingChangedSafeCloseable = null;
         }
+        LauncherPrefs.get(this).removeListener(
+                mSearchOptionsChangedListener,
+                LauncherPrefs.HOME_BOTTOM_SEARCH,
+                LauncherPrefs.ALL_APPS_BOTTOM_SEARCH,
+                LauncherPrefs.ALLOW_HOME_BACK_GESTURE);
         ScreenOnTracker.INSTANCE.get(this).removeListener(mScreenOnListener);
 
         mModel.removeCallbacks(modelCallbacks);
@@ -2458,7 +2495,8 @@ public class Launcher extends StatefulActivity<LauncherState>
 
         return getStateManager().getState() == NORMAL
                 && (topOpenFloatingView == null || topOpenFloatingView instanceof ListenerView)
-                && !isSplitSelectionEnabled;
+                && !isSplitSelectionEnabled
+                && !LauncherPrefs.ALLOW_HOME_BACK_GESTURE.get(this);
     }
 
     public void updateDisallowBack() {

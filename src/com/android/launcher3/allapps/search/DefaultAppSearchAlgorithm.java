@@ -38,6 +38,7 @@ import com.android.launcher3.util.LooperExecutor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * The default search implementation.
@@ -52,18 +53,25 @@ public class DefaultAppSearchAlgorithm implements SearchAlgorithm<AdapterItem> {
     private final Handler mResultHandler;
     private final boolean mAddNoResultsMessage;
     private long mSearchGeneration;
+    private final int mMaxResultsCount;
 
     public DefaultAppSearchAlgorithm(Context context, LooperExecutor uiExecutor) {
-        this(context, uiExecutor, false);
+        this(context, uiExecutor, false, MAX_RESULTS_COUNT);
     }
 
     public DefaultAppSearchAlgorithm(
             Context context, LooperExecutor uiExecutor, boolean addNoResultsMessage) {
+        this(context, uiExecutor, addNoResultsMessage, MAX_RESULTS_COUNT);
+    }
+
+    public DefaultAppSearchAlgorithm(Context context, LooperExecutor uiExecutor,
+            boolean addNoResultsMessage, int maxResultsCount) {
         mContext = context.getApplicationContext();
         mAppState = LauncherAppState.getInstance(context);
         mUserCache = UserCache.INSTANCE.get(context);
         mResultHandler = new Handler(uiExecutor.getLooper());
         mAddNoResultsMessage = addNoResultsMessage;
+        mMaxResultsCount = Math.max(1, maxResultsCount);
     }
 
     @Override
@@ -79,10 +87,10 @@ public class DefaultAppSearchAlgorithm implements SearchAlgorithm<AdapterItem> {
         mSearchGeneration++;
         final long searchGeneration = mSearchGeneration;
         mAppState.getModel().enqueueModelUpdateTask((taskController, dataModel, apps) ->  {
-            ArrayList<AdapterItem> result = getTitleMatchResult(
-                    apps.data.stream().filter(this::isSearchableApp).toList(), query);
+            ArrayList<AdapterItem> result = getTitleMatchResult(apps.data, query,
+                    this::isSearchableApp, mMaxResultsCount);
             if (isPrivateSpaceQuery(query) && isPrivateSpaceAvailable()) {
-                if (result.size() == MAX_RESULTS_COUNT) {
+                if (result.size() == mMaxResultsCount) {
                     result.remove(result.size() - 1);
                 }
                 result.add(0, new AdapterItem(VIEW_TYPE_PRIVATE_SPACE_RESULT));
@@ -112,6 +120,12 @@ public class DefaultAppSearchAlgorithm implements SearchAlgorithm<AdapterItem> {
      */
     @AnyThread
     public static ArrayList<AdapterItem> getTitleMatchResult(List<AppInfo> apps, String query) {
+        return getTitleMatchResult(apps, query, appInfo -> true, MAX_RESULTS_COUNT);
+    }
+
+    @AnyThread
+    private static ArrayList<AdapterItem> getTitleMatchResult(List<AppInfo> apps, String query,
+            Predicate<AppInfo> appFilter, int maxResultsCount) {
         // Do an intersection of the words in the query and each title, and filter out all the
         // apps that don't match all of the words in the query.
         final String queryTextLower = query.toLowerCase();
@@ -121,9 +135,11 @@ public class DefaultAppSearchAlgorithm implements SearchAlgorithm<AdapterItem> {
 
         int resultCount = 0;
         int total = apps.size();
-        for (int i = 0; i < total && resultCount < MAX_RESULTS_COUNT; i++) {
+        for (int i = 0; i < total && resultCount < maxResultsCount; i++) {
             AppInfo info = apps.get(i);
-            if (StringMatcherUtility.matches(queryTextLower, info.title.toString(), matcher)) {
+            if (appFilter.test(info)
+                    && StringMatcherUtility.matches(queryTextLower, info.title.toString(),
+                            matcher)) {
                 result.add(AdapterItem.asApp(info));
                 resultCount++;
             }

@@ -26,11 +26,14 @@ import static com.android.launcher3.anim.AnimatorListeners.forSuccessCallback;
 
 import android.animation.ObjectAnimator;
 import android.animation.TimeInterpolator;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.util.FloatProperty;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+
+import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.android.launcher3.BubbleTextView;
 import com.android.launcher3.Utilities;
@@ -87,8 +90,12 @@ public class RecyclerViewAnimationController {
         int totalHeight = 0;
         int appRowHeight = 0;
         boolean appRowComplete = false;
-        Integer top = null;
         AllAppsRecyclerView allAppsRecyclerView = getRecyclerView();
+        boolean stackRowsUpward = shouldStackRowsUpward(allAppsRecyclerView);
+        Integer top = stackRowsUpward ? getFirstChildTop(allAppsRecyclerView) : null;
+        int upwardStackShift = top == null
+                ? 0
+                : getUpwardStackShift(allAppsRecyclerView, top);
 
         for (int i = 0; i < allAppsRecyclerView.getChildCount(); i++) {
             View currentView = allAppsRecyclerView.getChildAt(i);
@@ -163,17 +170,93 @@ public class RecyclerViewAnimationController {
             int y = top + totalHeight;
             if (spanIndex > 0) {
                 // Continuation of an existing row; move this item into the row.
-                y -= scaledHeight;
+                y = stackRowsUpward
+                        ? top - totalHeight + scaledHeight
+                        : y - scaledHeight;
             } else {
+                if (stackRowsUpward) {
+                    y = top - totalHeight;
+                }
                 // Start of a new row contributes to total height.
                 totalHeight += scaledHeight;
                 if (!shouldAnimate) {
                     appRowHeight = scaledHeight;
                 }
             }
-            currentView.setY(y);
+            currentView.setY(y + upwardStackShift);
         }
         return totalHeight - appRowHeight;
+    }
+
+    private Integer getFirstChildTop(AllAppsRecyclerView recyclerView) {
+        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+            View child = recyclerView.getChildAt(i);
+            if (child != null) {
+                return child.getTop();
+            }
+        }
+        return null;
+    }
+
+    private int getUpwardStackShift(AllAppsRecyclerView recyclerView, int top) {
+        int totalHeight = 0;
+        int appRowHeight = 0;
+        boolean appRowComplete = false;
+        int minY = Integer.MAX_VALUE;
+        int maxBottom = Integer.MIN_VALUE;
+        List<BaseAllAppsAdapter.AdapterItem> adapterItems = recyclerView.getApps()
+                .getAdapterItems();
+
+        for (int i = 0; i < recyclerView.getChildCount(); i++) {
+            View currentView = recyclerView.getChildAt(i);
+            if (currentView == null) {
+                continue;
+            }
+            int adapterPosition = recyclerView.getChildAdapterPosition(currentView);
+            if (adapterPosition < 0 || adapterPosition >= adapterItems.size()) {
+                continue;
+            }
+            BaseAllAppsAdapter.AdapterItem adapterItemAtPosition =
+                    adapterItems.get(adapterPosition);
+            int spanIndex = getSpanIndex(recyclerView, adapterPosition);
+            appRowComplete |= appRowHeight > 0 && spanIndex == 0;
+            boolean hasDecorationInfo = adapterItemAtPosition.getDecorationInfo() != null;
+            boolean shouldAnimate = shouldAnimate(currentView, hasDecorationInfo, appRowComplete);
+            int scaledHeight = shouldAnimate
+                    ? (int) (currentView.getHeight() * (1 - getAnimationProgress()))
+                    : currentView.getHeight();
+
+            int y;
+            if (spanIndex > 0) {
+                y = top - totalHeight + scaledHeight;
+            } else {
+                y = top - totalHeight;
+                totalHeight += scaledHeight;
+                if (!shouldAnimate) {
+                    appRowHeight = scaledHeight;
+                }
+            }
+            minY = Math.min(minY, y);
+            maxBottom = Math.max(maxBottom, y + scaledHeight);
+        }
+
+        if (minY == Integer.MAX_VALUE) {
+            return 0;
+        }
+        Rect clipBounds = recyclerView.getClipBounds();
+        int minAllowedY = clipBounds == null ? recyclerView.getPaddingTop() : clipBounds.top;
+        int desiredShift = Math.max(0, minAllowedY - minY);
+        int maxAllowedBottom = recyclerView.getHeight() - recyclerView.getPaddingBottom();
+        int maxShift = maxBottom == Integer.MIN_VALUE
+                ? desiredShift
+                : Math.max(0, maxAllowedBottom - maxBottom);
+        return Math.min(desiredShift, maxShift);
+    }
+
+    private boolean shouldStackRowsUpward(AllAppsRecyclerView recyclerView) {
+        return recyclerView instanceof SearchRecyclerView
+                && recyclerView.getLayoutManager() instanceof GridLayoutManager gridLayoutManager
+                && gridLayoutManager.getReverseLayout();
     }
 
     protected void animateToState(boolean expand, long duration, Runnable onEndRunnable) {

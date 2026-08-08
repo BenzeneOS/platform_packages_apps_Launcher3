@@ -128,6 +128,13 @@ public class AllAppsList {
     }
 
     /**
+     * Returns true if all provided model flags are set.
+     */
+    public boolean hasFlags(int flagMask) {
+        return (mFlags & flagMask) == flagMask;
+    }
+
+    /**
      * Sets or clears the provided flag
      */
     public void setFlags(int flagMask, boolean enabled) {

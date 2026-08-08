@@ -66,6 +66,14 @@ public class FloatingHeaderView extends LinearLayout implements
                         return;
                     }
 
+                    if (shouldPinAtBottom()) {
+                        if (mAnimator.isStarted()) {
+                            mAnimator.cancel();
+                        }
+                        resetBottomPinnedScroll();
+                        return;
+                    }
+
                     if (mAnimator.isStarted()) {
                         mAnimator.cancel();
                     }
@@ -331,6 +339,27 @@ public class FloatingHeaderView extends LinearLayout implements
     }
 
     protected void applyVerticalMove() {
+        if (shouldPinAtBottom()) {
+            mTranslationY = 0;
+            for (FloatingHeaderRow row : mAllRows) {
+                row.setVerticalScroll(0, false /* isScrolledOut */);
+            }
+            mTabLayout.setTranslationY(0);
+            mRVClip.top = 0;
+            mHeaderClip.top = 0;
+            setClipBounds(mHeaderClip);
+            if (mMainRV != null) {
+                mMainRV.setClipBounds(mRVClip);
+            }
+            if (mWorkRV != null) {
+                mWorkRV.setClipBounds(mRVClip);
+            }
+            if (mSearchRV != null) {
+                mSearchRV.setClipBounds(mRVClip);
+            }
+            return;
+        }
+
         int uncappedTranslationY = mTranslationY;
         mTranslationY = Math.max(mTranslationY, -mMaxTranslation);
 
@@ -364,6 +393,26 @@ public class FloatingHeaderView extends LinearLayout implements
         }
         if (mSearchRV != null) {
             mSearchRV.setClipBounds(mRVClip);
+        }
+    }
+
+    private boolean shouldPinAtBottom() {
+        if (!(getParent() instanceof ActivityAllAppsContainerView)) {
+            return false;
+        }
+        return ((ActivityAllAppsContainerView<?>) getParent()).isBottomSearchEnabled();
+    }
+
+    private void resetBottomPinnedScroll() {
+        boolean headerCollapsed = mHeaderCollapsed;
+        mTranslationY = 0;
+        mHeaderCollapsed = false;
+        mSnappedScrolledY = -mMaxTranslation;
+        applyVerticalMove();
+        if (headerCollapsed) {
+            ActivityAllAppsContainerView<?> parent =
+                    (ActivityAllAppsContainerView<?>) getParent();
+            parent.invalidateHeader();
         }
     }
 
